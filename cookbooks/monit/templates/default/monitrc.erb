@@ -1,0 +1,16 @@
+set daemon 20
+set logfile syslog facility log_daemon
+set idfile /var/lib/monit/id
+set statefile /var/lib/monit/state
+# set mailserver <%= @node[:mailserver] %>, localhost
+set eventqueue
+    basedir /var/monit  # set the base directory where events will be stored
+    slots 100           # optionaly limit the queue size
+set mail-format { from: monit@smallsparklabs.com }
+
+# set alert <%= @node[:alert_email] %>                       # receive all alerts
+
+set httpd port 2812 and
+    allow localhost
+
+include /etc/monit/conf.d/*

@@ -1,0 +1,6 @@
+check process delayed_job with pidfile <%= @app_path %>/shared/tmp/pids/delayed_job.pid
+    start program = "/bin/su - <%= @app_user %> -c '/srv/www/ppckick/current/script/delayed_job start'"
+    stop program = "/bin/su - <%= @app_user %> -c '/srv/www/ppckick/current/script/delayed_job stop'"
+    if mem is greater than 300.0 MB for 1 cycles then restart
+    if cpu is greater than 50% for 2 cycles then alert
+    if cpu is greater than 80% for 3 cycles then restart

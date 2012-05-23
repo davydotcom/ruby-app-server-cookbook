@@ -1,0 +1,38 @@
+{
+  "set_fqdn": "server1.domain.com",
+  "apps": [ 
+    { 
+      "name": "appname", 
+      "username": "appsystemusername",
+      "group": "www", 
+      "git_branch": "master", 
+      "server": "appurl.com",
+      "aliases": ["www.appurl.com", "default"], // remove "default" to allow the request to fall through
+      "rails_env": "production",
+      "monit": {
+        "delayed_job": true
+      },
+      "databases": [
+        {
+          "name": "dbname",
+          "owner": "dbowner",
+          "users": [
+            {
+              "name": "appdbuser",
+              "password": "somerandompassword/use%a!password$generator",
+              "privileges": "ALL"
+            }
+          ]
+        }
+      ]
+    },
+  ],
+  "postfix": {
+    "root_forward": "admin@example.com"
+  },
+  "run_list": [ 
+    "role[base]",
+    "role[web]",
+    "role[database]"
+  ]
+}

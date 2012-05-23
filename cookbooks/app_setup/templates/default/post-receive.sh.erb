@@ -1,0 +1,160 @@
+#!/bin/bash -i
+set -e
+
+abs_path="$(readlink -f `dirname $0`)/$(basename $0)"
+if [ `whoami` != '<%= @app_user %>' ] ; then
+  # We're not running as the app's owner, call this script
+  # with the app owner as the user
+  sudo su - <%= @app_user %> -c "/bin/bash $abs_path $@"
+  exit 0
+fi
+
+log() {
+  x=0
+  while read line
+  do
+    if [ $x -eq 0 ]; then
+      echo $'\e[1G            ----->' $line
+    else
+      echo $'\e[1G                  ' $line
+    fi
+    let x=x+1
+  done
+}
+
+##
+# Git Post Receive Hook
+# Managed by Chef - Local Changes will be Nuked from Orbit (just to be sure)
+##
+echo $'\e[1G'
+echo $'\e[1G'
+echo $'\e[1G'
+
+echo 'Application Deployment Initialized' | log
+RELEASE_TS=`date +%Y%m%d%H%M%S`
+CURRENT_RELEASE_PATH=<%= @releases_path %>/$RELEASE_TS
+CURRENT_RELEASE_SYMLINK=<%= @app_path %>/current
+SHARED_DIR=<%= @app_path %>/shared
+
+cd <%= @repo_cache_path %>
+if [ ! -d '.git' ]; then
+  echo 'Initializing repository' | log
+  git clone <%= @repo_path %> <%= @repo_cache_path %> | log
+  chmod -R g+w <%= @repo_cache_path %>
+fi
+
+echo 'Updating repository cache' | log
+# get the current branch
+head="$(git symbolic-ref HEAD)"
+# read the STDIN to detect if this push changed the current branch
+while read oldrev newrev refname
+do
+  [ "$refname" = "$head" ] && break
+done
+git reset --hard | log
+git pull origin <%= @git_branch %> 2>/dev/null | log
+[ -f .gitmodules ] && git submodule update 2>/dev/null | log
+
+# set asset and migration diff results
+migrations_diff=`git diff $oldrev $newrev --diff-filter=A --name-only -z db/migrate`
+assets_diff=`git diff $oldrev $newrev --name-only -z app/assets Gemfile`
+
+echo 'Creating deployment release' | log
+cp -RPp . $CURRENT_RELEASE_PATH
+if [ "$(ls -A $CURRENT_RELEASE_PATH/deploy)" ]; then
+  chmod u+x $CURRENT_RELEASE_PATH/deploy/*.rb
+fi
+
+# symlink to the release
+echo 'Creating shared symlinks' | log
+cd $CURRENT_RELEASE_PATH
+if [ -d $CURRENT_RELEASE_PATH/tmp ]; then rm -rf $CURRENT_RELEASE_PATH/tmp; fi && ln -s $SHARED_DIR/tmp $CURRENT_RELEASE_PATH/tmp
+if [ -d $CURRENT_RELEASE_PATH/log ]; then rm -rf $CURRENT_RELEASE_PATH/log; fi && ln -s $SHARED_DIR/log $CURRENT_RELEASE_PATH/log
+if [ -d $CURRENT_RELEASE_PATH/public/assets ]; then rm -rf $CURRENT_RELEASE_PATH/public/assets; fi && ln -s $SHARED_DIR/public/assets $CURRENT_RELEASE_PATH/public/assets
+
+echo 'Running bundler' | log
+cd $CURRENT_RELEASE_PATH
+if [ -d $CURRENT_RELEASE_PATH/vendor/bundle ]; then rm -rf $CURRENT_RELEASE_PATH/vendor/bundle; fi && ln -s $SHARED_DIR/bundle   $CURRENT_RELEASE_PATH/vendor/bundle
+bundle install --deployment --path=vendor/bundle --without=development:test --clean | log
+
+if [ ! -z $migrations_diff ]; then
+  echo 'Running migrations' | log
+  bundle exec rake db:migrate RAILS_ENV=<%= @rails_env %> | log
+fi
+
+if [ ! -z $assets_diff ]; then
+  echo 'Running asset precompile' | log
+  bundle exec rake assets:precompile 2>/dev/null | log
+fi
+
+if [ -f $CURRENT_RELEASE_PATH/deploy/before_restart.rb ]; then
+  echo 'Running deploy hook -> before restart' | log
+  $CURRENT_RELEASE_PATH/deploy/before_restart.rb | log
+fi
+
+echo 'Creating application symlink' | log
+if [ -h $CURRENT_RELEASE_SYMLINK ]; then rm -f $CURRENT_RELEASE_SYMLINK; fi && ln -s $CURRENT_RELEASE_PATH $CURRENT_RELEASE_SYMLINK
+
+# restart app
+echo 'Restarting application' | log
+# Ensure Unicorn correctly detects the symlink after the process restarts
+cd $CURRENT_RELEASE_SYMLINK 
+
+UNICORN_PID_FILE=$SHARED_DIR/tmp/pids/unicorn.pid
+UNICORN_SOCKET_FILE=$SHARED_DIR/tmp/sockets/unicorn.sock
+
+process_exists() {
+  if [ ! -z "$(ps aux | grep 'unicorn.*master.*<%= @app_path %>' | grep -v grep)" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+pid_exists() {
+  if [ -f $UNICORN_PID_FILE ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+socket_exists() {
+  if [ -f $UNICORN_PID_FILE ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+if process_exists && pid_exists ; then
+  echo 'Restarting le Unicorns' | log
+  # echo 'Killing Unicorns!' | log
+  kill -s USR2 `cat $UNICORN_PID_FILE`
+else
+  echo 'Unicorns Engage!' | log
+  if process_exists ; then
+    # this pid file is missing but the process is still running
+    kill -s QUIT `ps aux | grep 'unicorn.*master.*<%= @app_path %>' | grep -v grep | awk '{print $2}'`
+  fi
+  if pid_exists; then rm $UNICORN_PID_FILE; fi
+  if [ -f $UNICORN_SOCKET_FILE ]; then rm $UNICORN_SOCKET_FILE; fi
+  # Specify the unicorn binary in the shared bundler directory so the binary is never
+  # lost after cleanup (i.e. the origianl release directory is removed)
+  $CURRENT_RELEASE_SYMLINK/vendor/bundle/ruby/1.9.1/bin/unicorn -c $CURRENT_RELEASE_SYMLINK/config/unicorn.rb -E <%= @rails_env %> -D
+fi
+
+if [ -f $CURRENT_RELEASE_PATH/deploy/after_restart.rb ]; then
+  echo 'Running deploy hook -> after restart' | log
+  $CURRENT_RELEASE_PATH/deploy/after_restart.rb | log
+fi
+
+echo 'Cleaning up' | log
+cd <%= @app_path %>/releases
+(ls -t|head -n <%= @keep_releases %>;ls)|sort|uniq -u|xargs rm -rf
+
+echo 'Deployment complete' | log
+
+echo $'\e[1G'
+echo $'\e[1G'
+echo $'\e[1G'

@@ -1,0 +1,5 @@
+ENV['DATABASE'] = 'database'
+ENV['DATABASE_USER'] = 'user'
+ENV['DATABASE_PASSWORD'] = 'password'
+ENV['S3_KEY'] = 'jfahfg7saasglg4b78fe'
+ENV['S3_SECRET'] = 'nfn7&8weqg$qwhr92q'

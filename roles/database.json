@@ -1,0 +1,17 @@
+{
+  "name": "database",
+  "default_attributes": { 
+    "postgresql" : {
+      "version": "9.1",
+      "password": {
+        "postgres": "somedatabasepassword"
+      }
+    }
+  },
+  "json_class": "Chef::Role",
+  "description": "Database role.",
+  "chef_type": "role",
+  "run_list": [ 
+    "recipe[postgresql::server]"
+  ]
+}

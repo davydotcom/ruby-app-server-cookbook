@@ -1,0 +1,36 @@
+##
+# Nginx vhost config
+# Managed by Chef - Local Changes will be Nuked from Orbit (just to be sure)
+##
+
+upstream <%= @server_name %> {
+    server unix:<%= @app_path %>/shared/tmp/sockets/unicorn.sock fail_timeout=0;
+}
+server {
+	listen 80 deferred;
+  server_name <%= @server_name %> <% @server_aliases.join(' ') %>;
+  client_max_body_size 4G;
+  root <%= @app_path %>/current/public;
+  try_files $uri/index.html $uri.html $uri @app;
+  
+  location @app {
+    #if ($host != '<%= @server_name %>' ) {
+    #  rewrite  ^/(.*)$  http://<%= @server_name %>/$1  permanent;
+    #}
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme; 
+    proxy_set_header Host $http_host;
+    proxy_redirect off;
+    proxy_pass http://<%= @server_name %>;
+
+    if (-f $document_root/system/maintenance.html) {
+      rewrite ^(.*)$ /system/maintenance.html break;
+    }
+  }
+
+  # Rails error pages
+  error_page 500 502 503 504 /500.html;
+  location = /500.html {
+    root <%= @app_path %>/current/public;
+  }
+}

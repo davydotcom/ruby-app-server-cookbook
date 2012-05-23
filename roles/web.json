@@ -1,0 +1,25 @@
+{
+  "name": "web",
+  "default_attributes": {
+    "nginx": {
+      "user": "nginx",
+      "group": "www",
+      "worker_processes": 1,
+      "keep_alive_timeout": 5
+    }
+  },
+  "json_class": "Chef::Role",
+  "description": "Web server role.",
+  "chef_type": "role",
+  "run_list": [
+    "recipe[users]",
+    "recipe[sudo]",
+    "recipe[monit]",
+    "recipe[nginx]",
+    "recipe[memcached]",
+    "recipe[nodejs]",
+    "recipe[nginx::monit]",
+    "recipe[unicorn]",
+    "recipe[app_setup]"
+  ]
+}
